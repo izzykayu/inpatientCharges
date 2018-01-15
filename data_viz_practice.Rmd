@@ -1,0 +1,603 @@
+---
+title: "visualization_finance_example"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(stringr)
+```
+## data visualization practice
+```{r trim and multi fun fxn , include=FALSE}
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)   # function to trim spaces of columns
+multi.fun <- function(x) {cbind(freq = table(x),
+                                percentage = prop.table(table(x))*100)} 
+## loading documents
+inpatientCharges <- read_csv("~/Documents/inpatientCharges.csv", 
+                             col_types = 
+                               cols(`Average Covered Charges` = col_number(), 
+        `Average Medicare Payments` = col_number(), 
+        `Average Total Payments` = col_number()))
+colnames(inpatientCharges) = 
+  tolower(stringr::str_replace_all(colnames(inpatientCharges), " ", "_"))
+inpatientCharges$provider_id <- as.character(inpatientCharges$provider_id)
+```
+```{r forgot, also replace missings fxn and reorder fxn }
+inpatientCharges$provider_zip_code <- as.character(inpatientCharges$provider_zip_code)
+replace_missings <- function(x, replacement) {
+  is_miss <- is.na(x)
+  x[is_miss] <- replacement
+
+  message(sum(is_miss), " missings replaced by the value ", replacement)
+  x
+}
+reorder_size <- function(x) {
+        factor(x, levels = names(sort(table(x), decreasing = TRUE)))
+}
+# oduble checking for missing data
+sapply(inpatientCharges, function(x) sum(length(which(is.na(x)))))
+```
+```{r using psych package }
+psych::describe(inpatientCharges[num])
+```
+
+```{r}
+head(inpatientCharges, 2) # looking at head of inpatientCharges
+```
+```{r creation of hospital state max count df }
+hospital_state_max_count_df <- inpatientCharges %>% 
+  separate(hospital_referral_region_description, c("hospital_state", "hospital_city"), sep = " - ") %>% 
+  group_by(hospital_state) %>% 
+  summarize(max_covered = max(average_covered_charges), count = n(), max_disch = max(total_discharges))
+```
+```{r tidy df }
+inpatientCharges.tidy <-
+  inpatientCharges %>% 
+  separate(hospital_referral_region_description, c("hospital_state", "hospital_city"), sep = " - ", remove = F) %>% 
+  separate(drg_definition, c("drg_code", "drg_description"), sep = " - ", remove = F)
+
+```
+```{r}
+library(noncensus)
+data(states) # data from noncensus package
+hospital_states <- states %>% select(-capital)
+colnames(hospital_states) <- c("hospital_state", "hospital_state_name","hospital_state_region", "hospital_state_division", "hospital_state_area","hospital_state_population")
+```
+```{r hospital states df creation, include=FALSE, message=FALSE}
+hospital_states <-
+  hospital_states %>% mutate_at(vars(hospital_state_area, hospital_state_population), as.numeric) %>% mutate(hospital_pop_area = round(hospital_state_population/hospital_state_area, 4))
+inpatientCharges.tidy1 <- inpatientCharges.tidy %>% left_join(hospital_states)
+```
+```{r describing by patient region}
+psych::describeBy(group = inpatientCharges.tidy1$hospital_state_region, x=inpatientCharges.tidy1$average_medicare_payments)
+```
+```{r, message= FALSE, include=FALSE}
+b <- inpatientCharges  %>% distinct(drg_definition) %>% mutate(drg_definition_last = str_sub(drg_definition, start=-12)) %>% separate(drg_definition_last, c("drg_a", "drg_b"), sep= " W", remove=T) %>% mutate(drg_W = paste0("W", drg_b))
+newcat <- b %>% select(drg_W, drg_definition)
+```
+```{r}
+inpatientCharges.tidy.v <- newcat %>% right_join(inpatientCharges.tidy1,by = "drg_definition")
+```
+```{r}
+library(ggsci) # ggsci because of the futurama color scheme
+theme_set(theme_bw()) # themeset bw
+library(ggplot2)
+library(gridExtra)
+inpatientCharges.tidy.v  %>% 
+  filter(provider_street_address=="550 FIRST AVENUE") %>%
+  ggplot(aes(x = average_medicare_payments/total_discharges, y = average_covered_charges/total_discharges)) +
+  geom_smooth() +
+   geom_point(alpha=0.9, pch=21, col="purple", size=2) + 
+  scale_color_futurama() + scale_x_log10() + scale_y_log10() +
+  ggtitle("NYU LANGONE 550 FIRST AVE")
+```
+_Extremely busy plot/ not helpful_
+```{r hospital statedf}
+head(hospital_state_max_count_df,2) #looking at hospital_state_max_count_df
+```
+```{r creating large color palette }
+library(randomcoloR) # loading randomcolorR
+n <- 51
+palette_51 <- distinctColorPalette(n) # creating 51 random color palettes
+```
+
+```{r}
+ggplot(hospital_state_max_count_df, aes(x = max_covered, y = max_disch, size = count, col=hospital_state)) + geom_point(pch=21) +
+  geom_point(alpha=0.2) + ggtitle("Inpatient Maximum Covered Payments and Maximum Discharges by State") + theme_bw() +
+  scale_color_manual(values=palette_51)+ guides(col = guide_legend(nrow = 10
+                                                                   ), size=guide_legend(nrow=1)) +
+  labs(x="Maximum Discharges by State", y="Maximum Covered Inpatient Payments")
+```
+# looking at MCC / CC
+```{r}
+colnames(inpatientCharges.tidy.v)
+inpatient_region_total_discharges_summary <- psych::describeBy(group= inpatientCharges.tidy.v$hospital_state_region, x=inpatientCharges.tidy.v$total_discharges)
+inpatient_region_average_medicare_payments_summary <- psych::describeBy(group= inpatientCharges.tidy.v$hospital_state_region, x=inpatientCharges.tidy.v$average_medicare_payments)
+inpatient_region_average_medicare_payments_summary <- psych::describeBy(group= inpatientCharges.tidy.v$hospital_state_region, x=inpatientCharges.tidy.v$average_medicare_payments)
+```
+
+```{r changing name to df.t to make it easier }
+df.t <- inpatientCharges.tidy.v
+df.t %>% filter(provider_street_address=="550 FIRST AVENUE") %>%
+  filter(drg_W == "W MCC" | drg_W=="W CC") %>%
+  ggplot(aes(x=drg_W, y=average_covered_charges, fill=drg_W)) + geom_boxplot()+ scale_fill_brewer(palette = "Dark2") +
+  labs(title="NYU 550 First Avenue",
+subtitle="Inpatient Covered Charges by if procedure had complications (CC), major complications (MCC)", x="Procedure Complication")# clearly skewed
+```
+_If procedure had MCC vs W CC, then higher covered charges_
+
+```{r}
+part1 <- inpatientCharges.tidy.v%>% filter(hospital_state=="NY")  %>%
+  select(hospital_state, drg_code, provider_name)
+inpatientCharges.tidy.v %>% filter(hospital_state=="NY") %>% group_by(provider_name) %>% summarize(tot_discharges=mean(total_discharges), average_tot_payments=mean(average_total_payments)) %>% left_join(part1, by="provider_name") %>% mutate(`NYU HOSPITAL`=if_else(provider_name=="NYU HOSPITALS CENTER", "YES", "NO")) %>% ggplot(aes(tot_discharges, y=average_tot_payments, col=`NYU HOSPITAL`)) +
+  geom_count(alpha=0.2) +geom_count(alpha=0.92, pch=21) +
+    scale_color_manual(values=c("#9DE0AD","#8C5881")) +
+  labs(title="Average Total Payments vs Average Total Discharges by Hospital in NY",
+       subtitle="Size=Counts", caption="source: data.gov",
+       y="Average Total Payments By Hospital",
+       x="Average Total Discharges By Hospital")
+
+```
+
+```{r}
+inpatientCharges.tidy.v %>% filter(hospital_state=="NY") %>% group_by(drg_code) %>% summarize(tot_discharges=mean(total_discharges), average_tot_payments=mean(average_total_payments)) %>% ggplot(aes(x = tot_discharges, y = average_tot_payments)) +
+  geom_point(alpha=0.5) + 
+  scale_x_log10() +
+  labs(title="Average Total Discharges vs Average Total Payments for DRG procedure in NY",
+       subtitle="Log X scale") 
+
+
+```
+```{r creation of just subset with city as manhattan }
+df.manhattan.inpatient.expenses<- df.t %>% filter(hospital_referral_region_description== "NY - Manhattan")
+df.manhattan.inpatient.expenses %>% head(2)
+multi.fun(df.manhattan.inpatient.expenses$provider_city)
+```
+
+```{r}
+numeric.manhattan <- sapply(df.manhattan.inpatient.expenses, is.numeric)
+df.manhat.cat <- df.manhattan.inpatient.expenses[!numeric.manhattan]
+df.manhat.cat %>% select(provider_id, provider_name) %>% head(2)
+```
+```{r}
+df.manhattan.inpatient.expenses$NYU=factor(ifelse(df.manhattan.inpatient.expenses$provider_name=="NYU HOSPITALS CENTER","NYU","NOT NYU"))
+
+df.manhattan.inpatient.expenses$withcomplicationsorwithout <- gsub("W CC/MCC", "W COMPLICATIONS", df.manhattan.inpatient.expenses$drg_W)
+df.manhattan.inpatient.expenses$withcomplicationsorwithout <- gsub("W MCC", "W COMPLICATIONS", df.manhattan.inpatient.expenses$withcomplicationsorwithout)
+df.manhattan.inpatient.expenses$withcomplicationsorwithout <- gsub("W CC", "W COMPLICATIONS", df.manhattan.inpatient.expenses$withcomplicationsorwithout)
+df.manhattan.inpatient.expenses$withcomplicationsorwithout <- gsub("W/O CC/MCC", "W/O COMPLICATIONS", df.manhattan.inpatient.expenses$withcomplicationsorwithout)
+df.manhattan.inpatient.expenses$withcomplicationsorwithout <- gsub("W/O MCC", "W/O COMPLICATIONS", df.manhattan.inpatient.expenses$withcomplicationsorwithout)
+df.manhattan.inpatient.expenses$withcomplicationsorwithout <- gsub("WNA", "DOES NOT APPLY TO PROCEDURE", df.manhattan.inpatient.expenses$withcomplicationsorwithout)
+multi.fun(df.manhattan.inpatient.expenses$drg_W)
+multi.fun(df.manhattan.inpatient.expenses$withcomplicationsorwithout)
+```
+
+How does NYU compare to other hospitals inpatient expenses?
+```{r}
+df.manhattan.inpatient.expenses %>% mutate(avg_med_pay_per_disch = round(average_medicare_payments/total_discharges,2)) %>% ggplot(aes(x=reorder(provider_name, avg_med_pay_per_disch, FUN=median), y=avg_med_pay_per_disch)) + geom_boxplot(varwidth = TRUE, aes(fill=NYU)) + coord_flip() +
+    scale_alpha_manual(values=c(0.2,0.1)) +
+    scale_fill_manual(values=c("#9DE0AD","#8C5881")) +
+  labs(x="Hospital", y="Average Medicare Payments / Total Discharges", 
+       title = "Boxplots",
+       subtitle=
+         "ordered by median medicare payments per discharge") +
+   theme(legend.position = "none")
+```
+```{r}
+df.manhattan.inpatient.expenses %>% group_by(provider_name) %>% summarize(count=n(), average_disch = round(mean(total_discharges))) %>% head(2)
+# %>% left_join(df.manhattan.inpatient.expenses)
+```
+
+```{r what about nyu total payments in comparison to other NYC region hospitals }
+df.manhattan.inpatient.expenses %>% ggplot(aes(x=reorder(provider_name, average_total_payments, FUN=median), y=average_total_payments)) + geom_boxplot(varwidth = T, aes(fill=NYU)) + coord_flip() +
+    scale_alpha_manual(values=c(0.2,0.1)) +
+    scale_fill_manual(values=c("#9DE0AD","#8C5881")) +
+  labs(x="Hospital", y="Average Total Payments", 
+       subtitle=
+         "Boxplots ordered by median of Average Total Payments") +
+  theme(legend.position = "none")
+```
+```{r}
+describeBy_total_discarges <- psych::describeBy(df.manhattan.inpatient.expenses$total_discharges, df.manhattan.inpatient.expenses$provider_name)
+ NYU.TOTAL.DISCHARGES <- data.frame(describeBy_total_discarges$`NYU HOSPITALS CENTER`)
+ rownames(NYU.TOTAL.DISCHARGES) <- c("total.discharges.NYU")
+ numeric <- sapply(df.t, is.numeric)
+df.manhattan.inpatient.expenses %>% select(total_discharges, average_covered_charges, average_medicare_payments, average_total_payments, provider_name)
+```
+```{r dotplot }
+manhattan.hospital.procedures <- df.manhattan.inpatient.expenses %>% group_by(provider_name) %>% tally()
+df.manhattan.inpatient.expenses %>% select(NYU, provider_name) %>% distinct() %>% right_join(manhattan.hospital.procedures, by = "provider_name") %>%
+  ggplot(aes(reorder(provider_name, n), n, col=NYU)) + geom_point() + coord_flip() +
+    scale_color_manual(values=c("#B7D968","#8C5881")) +
+  labs(subtitle="DRG procedures performed at Manhattan Hospitals", y="Number of distinct DRG Procedures performed", x="Hospital") +
+  theme(legend.position = 
+          "none")
+```
+
+```{r}
+# df.manhattan.inpatient.expenses %>% ggplot(aes(x=reorder(provider_name,total_discharges, FUN=median), y=total_discharges)) + geom_boxplot(varwidth = T, aes(fill=NYU)) + coord_flip() +
+#     scale_alpha_manual(values=c(0.2,0.1)) +
+#     scale_fill_manual(values=c("#9DE0AD","#8C5881")) +
+#   labs(x="Hospital", y="Average Total Payments", 
+#        subtitle=
+#          "Boxplots ordered by max total discharges")
+```
+
+```{r creation of manhattan plot }
+manhattan_plot <- ggplot(df.manhattan.inpatient.expenses, aes(x = average_medicare_payments, y = average_total_payments))
+# using provider city as color
+manhattan_plot+ geom_jitter(aes(color = provider_city), pch=21) + scale_color_futurama()
+
+df.550.first.ave <- df.manhattan.inpatient.expenses %>% filter(provider_street_address ==
+                                             "550 FIRST AVENUE")
+
+df.550.first.ave %>%
+  group_by(withcomplicationsorwithout) %>% 
+  summarize(max_covered = max(average_covered_charges), count = n(), max_disch = max(total_discharges))
+```
+```{r}
+sapply(df.550.first.ave[,c("average_medicare_payments","total_discharges","average_covered_charges","average_total_payments")], summary)
+```
+
+```{r}
+drg_W_df.550.first.ave <- psych::describeBy(df.550.first.ave$average_total_payments, group=df.550.first.ave$drg_W)
+drg_W_df.550.first.ave$WNA
+
+```
+
+```{r looking at different NY-MANHATTAN hospitals and max covered charges}
+df.manhattan.inpatient.expenses %>% 
+  group_by(provider_name) %>% 
+  summarize(max_covered_charges = max(average_covered_charges), max_medicare_payments= max(average_medicare_payments),count = n(), max_discharges = max(total_discharges), max_total_payments=max(average_total_payments))
+```
+```{r}
+x <- sapply(df.550.first.ave, is.numeric)
+colnames(df.550.first.ave[x])
+```
+```{r 550 first ave procedures with major complications ("W MCC ")}
+df.550.first.ave %>% filter(drg_W=="W MCC") %>% ggplot(aes(average_medicare_payments/total_discharges, y=average_total_payments/total_discharges)) + geom_jitter(aes(col=drg_code, size=average_covered_charges), alpha=0.2) + geom_jitter(aes(col=drg_code, size=average_covered_charges), alpha=0.9,pch=21) + labs(subtitle="NYU LANGONE 550 FIRST AVE", title="procedures W MCC") + scale_color_manual(values=palette_51)
+```
+```{r creation of color palettes }
+wes_palettes <- list(
+  BottleRocket1 = c("#A42820", "#5F5647", "#9B110E", "#3F5151", "#4E2A1E", "#550307", "#0C1707"),
+  BottleRocket2 = c("#FAD510", "#CB2314", "#273046", "#354823", "#1E1E1E"),
+  Rushmore1 = c("#E1BD6D", "#EABE94", "#0B775E", "#35274A" ,"#F2300F"),
+  Royal1 = c("#899DA4", "#C93312", "#FAEFD1", "#DC863B"),
+  Royal2 = c("#9A8822", "#F5CDB4", "#F8AFA8", "#FDDDA0", "#74A089"),
+  Zissou1 = c("#3B9AB2", "#78B7C5", "#EBCC2A", "#E1AF00", "#F21A00"),
+  Darjeeling1 = c("#FF0000", "#00A08A", "#F2AD00", "#F98400", "#5BBCD6"),
+  Darjeeling2 = c("#ECCBAE", "#046C9A", "#D69C4E", "#ABDDDE", "#000000"),
+  Chevalier1 = c("#446455", "#FDD262", "#D3DDDC", "#C7B19C"),
+  FantasticFox1 = c("#DD8D29", "#E2D200", "#46ACC8", "#E58601", "#B40F20"),
+  Moonrise1 = c("#F3DF6C", "#CEAB07", "#D5D5D3", "#24281A"),
+  Moonrise2 = c("#798E87", "#C27D38", "#CCC591", "#29211F"),
+  Moonrise3 = c("#85D4E3", "#F4B5BD", "#9C964A", "#CDC08C", "#FAD77B"),
+  Cavalcanti1 = c("#D8B70A", "#02401B", "#A2A475", "#81A88D", "#972D15"),
+  GrandBudapest1 = c("#F1BB7B", "#FD6467", "#5B1A18", "#D67236"),
+  GrandBudapest2 = c("#E6A0C4", "#C6CDF7", "#D8A499", "#7294D4")
+)
+gbp =c("#733080","#F4BAC8","#A40607","#7288B9","#F0C595","#733080")
+nyu_cols_maybe <- c(gbp, wes_palettes$FantasticFox1, wes_palettes$GrandBudapest1, wes_palettes$GrandBudapest2)
+
+```
+```{r}
+ggplot(df.t, aes(x = average_total_payments, y = average_medicare_payments)) +
+geom_point(alpha=0.01) + ggtitle("Average Medicare Payments vs Average Total Payments for all US") + geom_smooth(size=0.9)
+
+```
+
+```{r}
+hospital_states$hospital_state <- as.character(hospital_states$hospital_state)
+state_averages_df <-
+  df.t %>% 
+  group_by(hospital_state) %>% 
+  summarize(state_mean_covered_charges = mean(average_covered_charges), state_mean_total_discharges = mean(total_discharges),state_average_total_payments =
+mean(average_total_payments), state_average_medicare_payments = mean(average_medicare_payments)
+
+) %>% left_join(hospital_states, by="hospital_state") %>% mutate(state_medicare_payments_over_total_payments=state_average_medicare_payments/state_average_total_payments)
+
+```
+
+```{r dataviz example}
+ggplot(state_averages_df, aes(x = state_mean_covered_charges, y = state_average_total_payments,color = hospital_state_region)) +
+  geom_point(aes(size=hospital_pop_area)) +
+  geom_smooth(method="loess") + scale_color_futurama()
+```
+```{r}
+ggplot(state_averages_df, aes(x = state_mean_covered_charges, y = state_average_total_payments,color = hospital_state_region)) +
+  # geom_point() +
+  geom_smooth() + scale_color_futurama()
+```
+
+```{r}
+state_averages_df %>% ggplot(aes(hospital_state_population, state_average_total_payments, col=hospital_state_region)) + geom_jitter(alpha=0.72) + scale_color_manual(values=palette_51) 
+```
+```{r}
+state_averages_df %>% ggplot(aes(x = 1000*state_medicare_payments_over_total_payments/sum(state_medicare_payments_over_total_payments), y = hospital_pop_area, col=hospital_state_region)) + geom_point(alpha=0.4) + scale_color_futurama() +
+  labs(x="medicare payments/sum", subtitle="Hospital Population Area vs Total Medicare Payments/Sum of Total Medicare Payments")
+```
+```{r}
+df.manhattan.inpatient.expenses %>% group_by(withcomplicationsorwithout, NYU) %>% 
+  summarise(mean_covered_charge_per_disch = mean(average_covered_charges/total_discharges))
+```
+
+```{r}
+df.manhattan.inpatient.expenses %>% group_by(withcomplicationsorwithout, NYU) %>% 
+  summarise(mean_covered_charge_per_disch = mean(average_covered_charges/total_discharges)) %>%
+  ggplot(aes(factor(withcomplicationsorwithout), mean_covered_charge_per_disch, fill=NYU)) + geom_col(position="dodge") +
+  scale_fill_manual(name="", values=c("#9DE0AD","#8C5881")) + coord_flip() +
+  labs(title="Covered Charges for Procedures NYU vs other Manhattan region hospitals", y="Average Covered Charge Per Discharge", caption="source: data.gov", x="Procedures: Without CC/MCC, With CC/MCC, N/A")
+```
+```{r NYU vs not NYU for drg_coes and average total payments }
+df.manhattan.inpatient.expenses %>% group_by(drg_code, NYU) %>% 
+  summarise(avg_total_payments_per_disch = mean(average_total_payments/total_discharges)) %>% head(10)
+```
+
+```{r}
+df.manhattan.inpatient.expenses %>% group_by(drg_code, NYU) %>% 
+  summarise(avg_total_payments_per_disch = 
+              mean(average_total_payments/total_discharges)) %>%
+  ggplot(aes(factor(drg_code), avg_total_payments_per_disch, fill=NYU)) + 
+  geom_col(position="dodge") +
+  scale_fill_manual(name="", 
+                    values=c("#9DE0AD","#8C5881")) + coord_flip() +
+  labs(subtitle=
+         "Average total payments per discharge for DRG Procedures NYU vs other Manhattan region hospitals", y="Average total payments per discharge",
+       caption="source: data.gov", x="DRG Codes") + theme(axis.text.y = element_text(size=6))
+```
+
+```{r summary of df.550.first.ave }
+summary(df.550.first.ave$average_covered_charges)
+```
+
+```{r}
+nyu_color_scale <- scale_color_manual(values=nyu_cols_maybe)
+# 1st ave plot
+firstave_plot <- ggplot(df.550.first.ave, aes(x = average_covered_charges/total_discharges, y = average_medicare_payments/total_discharges))
+
+dia_plot <- firstave_plot + geom_point(alpha=0.2, size=3) + ggtitle("NYU HOSPITAL- 550 FIRST AVE")
+
+dia_plot + geom_smooth(se = FALSE, col="purple")
+
+dia_plot + geom_smooth(aes(col = withcomplicationsorwithout), se = FALSE) +nyu_color_scale 
+```
+```{r}
+df.550.first.ave%>%
+ggplot( aes(x = average_covered_charges/total_discharges, y = average_medicare_payments/total_discharges)) + geom_point(alpha=0.92,
+  aes(col=withcomplicationsorwithout, size=total_discharges), pch=21)
+```
+```{r}
+summary(df.550.first.ave$average_covered_charges/df.550.first.ave$total_discharges)
+summary(df.550.first.ave$average_total_payments)
+summary(df.550.first.ave$average_medicare_payments)
+```
+
+```{r}
+library(ggalt)
+payments_select <- df.550.first.ave[
+   df.550.first.ave$average_covered_charges> 190000,]
+   # & 
+   #                         df.550.first.ave$average_medicare_payments > 35000, ]
+
+ggplot(df.550.first.ave, aes(x = average_total_payments, y = average_medicare_payments)) + geom_point(alpha=0.2, size=1.3,
+  aes(col=withcomplicationsorwithout)) +
+  geom_point(alpha=0.7, size=1.3, pch=21,
+  aes(col=withcomplicationsorwithout)) +
+      # , size=total_discharges)) +   # draw points
+  geom_smooth(method="loess", se=F, col="purple", size=.75) +
+  # xlim(c(0, 0.1)) + 
+  # ylim(c(0, 500000)) +   # draw smoothing line
+  geom_encircle(aes(x=average_total_payments, y = average_medicare_payments), 
+                data=payments_select, 
+                color="red", 
+                size=1.2, 
+                expand=0.02) +   # encircle
+  labs(title="Scatterplot of average medicare payments vs average total payments", 
+       subtitle="Encircle of procedures where average covered charges exceed $190000", 
+       caption="Source: data.gov") + scale_color_manual(values=c("purple","darkred", "black"))
+```
+
+
+```{r}
+  ggplot(df.550.first.ave,aes(x=withcomplicationsorwithout, y=average_total_payments, fill=withcomplicationsorwithout)) + geom_boxplot(varwidth = T)+ scale_fill_manual(name="Procedure Complication", values = palette_51) +
+  labs(title="NYU 550 First Avenue",
+subtitle="Average Total Payments", x="Procedure Complication") +
+  coord_flip()
+```
+```{r }
+df.550.first.ave %>% ggplot(aes(average_covered_charges, average_total_payments)) + geom_point(col="purple", size=2, alpha=0.25) +
+  labs(title="Covered Charges vs Total Payments at NYU 550 First Ave")
+firstaveModel <- lm(average_total_payments ~ average_covered_charges, data = df.550.first.ave)
+```
+using base package plot
+```{r}
+df.550.first.ave$withcomplicationsorwithout <- as.factor(df.550.first.ave$withcomplicationsorwithout)
+plot(df.550.first.ave$average_covered_charges, df.550.first.ave$average_total_payments, col = df.550.first.ave$withcomplicationsorwithout)
+abline(firstaveModel, lty = 2)
+```
+```{r}
+# install.packages("CerioliOutlierDetection")
+
+head(df.550.first.ave[14:17])
+```
+```{r using Hmisc to describe numeric cols in the 550 first ave df }
+Hmisc::describe(df.550.first.ave[14:17])
+```
+```{r}
+library(gmodels)
+CrossTable(df.550.first.ave$withcomplicationsorwithout)
+str(df.manhattan.inpatient.expenses)
+CrossTable(df.manhattan.inpatient.expenses$provider_city, df.manhattan.inpatient.expenses$withcomplicationsorwithout, prop.r = TRUE, 
+           prop.c = FALSE, prop.t = FALSE, prop.chisq = FALSE)
+```
+We can see that the proportion of procedures with complications or without tends to stay relatively the same between all provider cities
+
+```{r using psych package}
+numerical_summary_df.550.first.ave <- as.data.frame(psych::describe(df.550.first.ave[14:17]))
+ numerical_summary_df.550.first.ave$num.vars <- rownames(numerical_summary_df.550.first.ave)
+ numerical_summary_df.550.first.ave # now a dataframe
+```
+```{r creating indexes of outliers to investigate later }
+index_highdischarges <- which(df.550.first.ave$total_discharges > 680) # max is 689
+# definitely an outlier as can be seen below
+plot(df.550.first.ave$total_discharges)
+plot(df.550.first.ave$total_discharges,df.550.first.ave$average_covered_charges)
+plot(df.550.first.ave$average_covered_charges)
+plot(df.550.first.ave$average_total_payments)
+plot(df.550.first.ave$average_medicare_payments)
+```
+
+```{r}
+
+n_breaks <- sqrt(nrow(df.550.first.ave))
+hist(df.550.first.ave$total_discharges, xlab="Total Discharges", main="Total Discharges at NYU 550 First Ave", breaks=11)
+hist(df.550.first.ave$average_covered_charges,breaks=11, xlab="Average Covered Charges", main="Avg Covered Charges at NYU 550 First Ave")
+hist(df.550.first.ave$average_total_payments,breaks=11, xlab="Average Total Payments", main="Avg Covered Charges at NYU 550 First Ave")
+hist(df.550.first.ave$average_medicare_payments,breaks=11, xlab="Average Medicare Payments", main="Average Medicare Payments at NYU 550 First Ave")
+```
+
+```{r}
+
+```
+
+
+From R cookbook:
+```{r herlper functions}
+## Gives count, mean, standard deviation, standard error of the mean, and confidence interval (default 95%).
+##   data: a data frame.
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   groupvars: a vector containing names of columns that contain grouping variables
+##   na.rm: a boolean that indicates whether to ignore NA's
+##   conf.interval: the percent range of the confidence interval (default is 95%)
+summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
+                      conf.interval=.95, .drop=TRUE) {
+    library(plyr)
+
+    # New version of length which can handle NA's: if na.rm==T, don't count them
+    length2 <- function (x, na.rm=FALSE) {
+        if (na.rm) sum(!is.na(x))
+        else       length(x)
+    }
+
+    # This does the summary. For each group's data frame, return a vector with
+    # N, mean, and sd
+    datac <- ddply(data, groupvars, .drop=.drop,
+      .fun = function(xx, col) {
+        c(N    = length2(xx[[col]], na.rm=na.rm),
+          mean = mean   (xx[[col]], na.rm=na.rm),
+          sd   = sd     (xx[[col]], na.rm=na.rm)
+        )
+      },
+      measurevar
+    )
+
+    # Rename the "mean" column    
+    datac <- rename(datac, c("mean" = measurevar))
+
+    datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+
+    # Confidence interval multiplier for standard error
+    # Calculate t-statistic for confidence interval: 
+    # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+    ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+    datac$ci <- datac$se * ciMult
+
+    return(datac)
+}
+## Norms the data within specified groups in a data frame; it normalizes each
+## subject (identified by idvar) so that they have the same mean, within each group
+## specified by betweenvars.
+##   data: a data frame.
+##   idvar: the name of a column that identifies each subject (or matched subjects)
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   betweenvars: a vector containing names of columns that are between-subjects variables
+##   na.rm: a boolean that indicates whether to ignore NA's
+normDataWithin <- function(data=NULL, idvar, measurevar, betweenvars=NULL,
+                           na.rm=FALSE, .drop=TRUE) {
+    library(plyr)
+
+    # Measure var on left, idvar + between vars on right of formula.
+    data.subjMean <- ddply(data, c(idvar, betweenvars), .drop=.drop,
+     .fun = function(xx, col, na.rm) {
+        c(subjMean = mean(xx[,col], na.rm=na.rm))
+      },
+      measurevar,
+      na.rm
+    )
+
+    # Put the subject means with original data
+    data <- merge(data, data.subjMean)
+
+    # Get the normalized data in a new column
+    measureNormedVar <- paste(measurevar, "_norm", sep="")
+    data[,measureNormedVar] <- data[,measurevar] - data[,"subjMean"] +
+                               mean(data[,measurevar], na.rm=na.rm)
+
+    # Remove this subject mean column
+    data$subjMean <- NULL
+
+    return(data)
+}
+## Summarizes data, handling within-subjects variables by removing inter-subject variability.
+## It will still work if there are no within-S variables.
+## Gives count, un-normed mean, normed mean (with same between-group mean),
+##   standard deviation, standard error of the mean, and confidence interval.
+## If there are within-subject variables, calculate adjusted values using method from Morey (2008).
+##   data: a data frame.
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   betweenvars: a vector containing names of columns that are between-subjects variables
+##   withinvars: a vector containing names of columns that are within-subjects variables
+##   idvar: the name of a column that identifies each subject (or matched subjects)
+##   na.rm: a boolean that indicates whether to ignore NA's
+##   conf.interval: the percent range of the confidence interval (default is 95%)
+summarySEwithin <- function(data=NULL, measurevar, betweenvars=NULL, withinvars=NULL,
+                            idvar=NULL, na.rm=FALSE, conf.interval=.95, .drop=TRUE) {
+
+  # Ensure that the betweenvars and withinvars are factors
+  factorvars <- vapply(data[, c(betweenvars, withinvars), drop=FALSE],
+    FUN=is.factor, FUN.VALUE=logical(1))
+
+  if (!all(factorvars)) {
+    nonfactorvars <- names(factorvars)[!factorvars]
+    message("Automatically converting the following non-factors to factors: ",
+            paste(nonfactorvars, collapse = ", "))
+    data[nonfactorvars] <- lapply(data[nonfactorvars], factor)
+  }
+
+  # Get the means from the un-normed data
+  datac <- summarySE(data, measurevar, groupvars=c(betweenvars, withinvars),
+                     na.rm=na.rm, conf.interval=conf.interval, .drop=.drop)
+
+  # Drop all the unused columns (these will be calculated with normed data)
+  datac$sd <- NULL
+  datac$se <- NULL
+  datac$ci <- NULL
+
+  # Norm each subject's data
+  ndata <- normDataWithin(data, idvar, measurevar, betweenvars, na.rm, .drop=.drop)
+
+  # This is the name of the new column
+  measurevar_n <- paste(measurevar, "_norm", sep="")
+
+  # Collapse the normed data - now we can treat between and within vars the same
+  ndatac <- summarySE(ndata, measurevar_n, groupvars=c(betweenvars, withinvars),
+                      na.rm=na.rm, conf.interval=conf.interval, .drop=.drop)
+
+  # Apply correction from Morey (2008) to the standard error and confidence interval
+  #  Get the product of the number of conditions of within-S variables
+  nWithinGroups    <- prod(vapply(ndatac[,withinvars, drop=FALSE], FUN=nlevels,
+                           FUN.VALUE=numeric(1)))
+  correctionFactor <- sqrt( nWithinGroups / (nWithinGroups-1) )
+
+  # Apply the correction factor
+  ndatac$sd <- ndatac$sd * correctionFactor
+  ndatac$se <- ndatac$se * correctionFactor
+  ndatac$ci <- ndatac$ci * correctionFactor
+
+  # Combine the un-normed means with the normed results
+  merge(datac, ndatac)
+}
+```
